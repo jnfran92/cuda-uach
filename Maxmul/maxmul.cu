@@ -13,27 +13,17 @@
 using namespace std;
 
 
+typedef struct {
+		int m;
+		int n;
+		double *elements;
+		} Matrix;
+
 __global__ void matmul1(double *a, double *b, double *c){
-
-	//int tid = blockDim.y * threadIdx.y +   threadIdx.x;
-	//int bid = gridDim.y * blockIdx.y + blockIdx.x; 
-
-	//int idx = (blockDim.x * blockDim.y)*bid + tid;
-
 
 
 	int idy = threadIdx.y + blockDim.y * blockIdx.y;
 	int idx = threadIdx.x + blockDim.x * blockIdx.x;
-
-//	printf("%d %d  \n", idy, idx);
-
-
-	// int bid = (blockDim.x * blockDim.y) * ( gridblockIdx.y )
-
-	//if(tid == 0){
-	//	printf("bid %d   idx %d  \n ", bid, idx);
-	//}
-	//printf("tid %d/n", tid);
 
 
 	int n = blockDim.x * gridDim.x;
@@ -48,9 +38,11 @@ __global__ void matmul1(double *a, double *b, double *c){
 
 	c[ n * idy + idx ] = r;
 
-//	 printf("%d %d - %f\n", idy, idx, r );
-	
-	
+}
+
+
+
+__global__ void matmul2(Matrix A, Matrix B, Matrix C ){
 
 
 
@@ -73,6 +65,11 @@ int main( int argc, char**  argv  ){
 	
 	printf(" CUDA - Maxmul  \n");
 
+
+	// Select Device
+//	HANDLE_ERROR(  cudaSetDevice(0)  ) ;
+	
+	
 
 	// Size
 	int n = atoi(argv[1]);
@@ -97,7 +94,7 @@ int main( int argc, char**  argv  ){
 	}
 
 	
-	print_dmatrix(a,n,n);
+//	print_dmatrix(a,n,n);
 //	print_dmatrix(b,n,n);	
 
 	// CUDA data
@@ -141,7 +138,53 @@ int main( int argc, char**  argv  ){
 	cudaEventElapsedTime(&milliseconds, start, stop);
 	printf("Time: %f\n", milliseconds );	
 
-	print_dmatrix(c,n,n);
+
+	//Free
+	cudaFree( a_dev );
+	cudaFree( b_dev );
+	cudaFree( c_dev );
+
+
+//	print_dmatrix(c,n,n);
+
+
+//	Matrix A;
+//	Matrix B;
+//	Matrix C;
+
+
+//	A.m = n;
+//	A.n = n;
+//	A.elements = (double *)malloc( sizeof(double) * n * n   );   
+//	A.elements = a;
+	
+//	B.m = n;
+// 	B.n = n;
+// 	B.elements = (double *)malloc(  sizeof(double) * n * n );
+// 	B.elements = b;
+
+		
+// 	C.m = n;
+// 	C.n = n;
+// 	C.elements = (double *)malloc(  sizeof(double) * n * n );
+// 	C.elements = c;
+	
+
+
+// 	Matrix A_dev;
+// 	Matrix B_dev;
+// 	Matrix C_dev;
+
+	
+// 	A_dev.elements = (double *)malloc( sizeof(double) * n * n   );   
+	
+// 	B_dev.elements = (double *)malloc(  sizeof(double) * n * n );
+	
+// 	C_dev.elements = (double *)malloc(  sizeof(double) * n * n );
+	
+
+
+
 
 	return 0;
 }
@@ -150,4 +193,21 @@ int main( int argc, char**  argv  ){
 
 
 
+//	printf("%d %d  \n", idy, idx);
 
+
+	// int bid = (blockDim.x * blockDim.y) * ( gridblockIdx.y )
+
+	//if(tid == 0){
+	//	printf("bid %d   idx %d  \n ", bid, idx);
+	//}
+	//printf("tid %d/n", tid);
+
+	//int tid = blockDim.y * threadIdx.y +   threadIdx.x;
+	//int bid = gridDim.y * blockIdx.y + blockIdx.x; 
+
+	//int idx = (blockDim.x * blockDim.y)*bid + tid;
+
+
+
+//	 printf("%d %d - %f\n", idy, idx, r );
