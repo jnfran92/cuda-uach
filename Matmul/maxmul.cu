@@ -8,43 +8,105 @@
 #include "../Utils/utils.h"
 #include "../Utils/matutils.h"
 
+#include "omp.h"
 #define PRINT 1
+
+
+#define BSIZE 16
 
 using namespace std;
 
-
-typedef struct {
-		int m;
-		int n;
-		double *elements;
-		} Matrix;
-
-__global__ void matmul1(double *a, double *b, double *c){
+//Pedir n como parametro
+__global__ void matmul1( int n,  double *a, double *b, double *c){
 
 
 	int idy = threadIdx.y + blockDim.y * blockIdx.y;
 	int idx = threadIdx.x + blockDim.x * blockIdx.x;
 
 
-	int n = blockDim.x * gridDim.x;
+//	int n = blockDim.x * gridDim.x;
 	int k;
-	double r = 0;
+	double r = 0.0;
 	for ( k=0; k< n  ; k++   ){
 	
 				 
-		r +=  a[ n * idy + k  ] *  b[ n*k + idx  ];
+		r +=  a[ n*idy + k  ] *  b[ n*k + idx  ];
 
 	}
 
-	c[ n * idy + idx ] = r;
+	c[ n*idy + idx ] = r;
 
 }
 
+__global__ void matmul_sm(int n, double *a, double *b, double *c){
+
+	__shared__ double as[BSIZE*BSIZE];
+	__shared__ double bs[BSIZE*BSIZE];
+	__shared__ double cs[BSIZE*BSIZE];
+
+	int ltidx = threadIdx.x;
+	int ltidy = threadIdx.y;
+	
+	int tidy = threadIdx.y + blockDim.y * blockIdx.y;
+	int tidx = threadIdx.x + blockDim.x * blockIdx.x;
+
+	
+	cs[bx*ltidy + ltidx ] = 0;
 
 
-__global__ void matmul2(Matrix A, Matrix B, Matrix C ){
+	
+	__syncthreads();
+
+	
 
 
+
+
+	as[bx*ltidy + ltidx ] = a[n*tidy  + tidx ];
+	
+	bs[bx*ltidy + ltidx ] = b[n*tidy  + tidx ];
+	
+
+	double r = 0.0;
+	for ( k=0; k< BSIZE  ; k++   ){
+		r +=  a[ n*idy + k  ] *  b[ n*k + idx  ];
+	}
+
+	c[ n*idy + idx ] = r;
+
+
+
+	
+
+
+
+	__syncthreads();
+	
+
+
+
+
+	
+
+
+}
+
+void matmulcpu(int n,  double *a, double *b, double *c){
+
+//	int j, k;
+	#pragma omp parallel for
+	for ( int i = 0; i< n ;i++ ){
+		for ( int j = 0; j< n ;j++ ){
+			double temp = 0.0;			
+			for (int k = 0; k< n ;k++ ){
+	
+				temp += a[i*n + k  ] * b[ i*n + k  ];
+
+			}
+			c[i*n +  j ] = temp;
+
+		}	
+	}
 
 }
 
@@ -52,7 +114,7 @@ __global__ void matmul2(Matrix A, Matrix B, Matrix C ){
 
 int main( int argc, char**  argv  ){
 
-	int args_needed = 2;
+	int args_needed = 3;
 	if (argc < args_needed + 1 ){
 		printf(" Arg number error, needed: %d  \n", args_needed);
 		return 0;	
@@ -75,6 +137,7 @@ int main( int argc, char**  argv  ){
 	int n = atoi(argv[1]);
 	int nt = atoi(argv[2]);
 
+	int ncpu = atoi(argv[3]);
 	//Create Data host n x n
 
 	double *a;
@@ -85,17 +148,39 @@ int main( int argc, char**  argv  ){
 	b = (double *)malloc( sizeof(double) * n * n  );
 	c = (double *)malloc( sizeof(double) * n * n  );
 
-	int i;
+	int i,j;
 
-	for ( i =0; i<n*n ; i++  ){
-		a[i] = i;
-		b[i] = i;
-		c[i] = 0;
+	for ( i =0; i<n ; i++  ){
+		for( j =0; j<n ; j++){
+			a[ i*n + j  ] = i*n + j;
+			b[ i*n + j ] = i*n + j;
+			c[ i*n + j ] = 0;
+		}
 	}
+	
+
 
 	
 //	print_dmatrix(a,n,n);
 //	print_dmatrix(b,n,n);	
+
+
+	omp_set_num_threads(ncpu);
+
+	cudaEventRecord(start);	
+	matmulcpu(n,a,b,c);
+	cudaEventRecord(stop);
+
+
+	
+	float milliseconds1 = 0;
+	cudaEventElapsedTime(&milliseconds1, start, stop);
+	printf("Time CPU : %f\n", milliseconds1 );	
+
+
+
+
+
 
 	// CUDA data
 	double *a_dev;
@@ -118,14 +203,13 @@ int main( int argc, char**  argv  ){
 	
 	// Kernel
 	
-	dim3 threads(nt, nt, 1);
-	dim3 blocks(n/nt, n/nt, 1);
+	dim3 block(nt, nt, 1);
+	dim3 grid(n/nt, n/nt, 1);
 
 	
 	cudaEventRecord(start);
-	matmul1<<< blocks, threads >>>(a_dev, b_dev, c_dev);
+	matmul1<<<grid, block>>>(n,a_dev,b_dev,c_dev);
 	cudaEventRecord(stop);
-
 
 	// Get data Devices
 	HANDLE_ERROR(  cudaMemcpy(c, c_dev, sizeof(double) * n * n, cudaMemcpyDeviceToHost )     );
@@ -139,51 +223,15 @@ int main( int argc, char**  argv  ){
 	printf("Time: %f\n", milliseconds );	
 
 
+
 	//Free
 	cudaFree( a_dev );
 	cudaFree( b_dev );
 	cudaFree( c_dev );
 
-
-//	print_dmatrix(c,n,n);
-
-
-//	Matrix A;
-//	Matrix B;
-//	Matrix C;
-
-
-//	A.m = n;
-//	A.n = n;
-//	A.elements = (double *)malloc( sizeof(double) * n * n   );   
-//	A.elements = a;
-	
-//	B.m = n;
-// 	B.n = n;
-// 	B.elements = (double *)malloc(  sizeof(double) * n * n );
-// 	B.elements = b;
-
-		
-// 	C.m = n;
-// 	C.n = n;
-// 	C.elements = (double *)malloc(  sizeof(double) * n * n );
-// 	C.elements = c;
-	
-
-
-// 	Matrix A_dev;
-// 	Matrix B_dev;
-// 	Matrix C_dev;
-
-	
-// 	A_dev.elements = (double *)malloc( sizeof(double) * n * n   );   
-	
-// 	B_dev.elements = (double *)malloc(  sizeof(double) * n * n );
-	
-// 	C_dev.elements = (double *)malloc(  sizeof(double) * n * n );
-	
-
-
+	free(a);
+	free(b);
+	free(c);
 
 
 	return 0;
