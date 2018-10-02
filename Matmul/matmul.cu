@@ -99,6 +99,29 @@ void matmulcpu(int n,  double *a, double *b, double *c){
 }
 
 
+void matmulcpu_transp(int n,  double *a, double *b, double *c){
+
+//	int j, k;
+	#pragma omp parallel for
+	for ( int i = 0; i< n ;i++ ){
+		for ( int j = 0; j< n ;j++ ){
+			double temp = 0.0;			
+			for (int k = 0; k< n ;k++ ){
+	
+				temp += a[n*i + k  ] * b[ n*i + k  ];
+
+			}
+			c[i*n +  j ] = temp;
+
+		}	
+	}
+
+}
+
+
+
+
+
 int main( int argc, char**  argv  ){
 
 	int args_needed = 2;
@@ -159,6 +182,21 @@ int main( int argc, char**  argv  ){
 	printf("Time CPU : %f\n", milliseconds1 );	
 
 
+	// Transpose CPU
+
+	cudaEventRecord(start);	
+	matmulcpu_transp(n,a,b,c);
+	cudaEventRecord(stop);
+
+//	print_dmatrix(c,n,n);
+	
+	milliseconds1 = 0;
+	cudaEventElapsedTime(&milliseconds1, start, stop);
+	printf("Time CPU Transp : %f\n", milliseconds1 );	
+
+
+
+
 
 
 	//printf("*\n");
@@ -168,8 +206,6 @@ int main( int argc, char**  argv  ){
 
 	for ( i =0; i<n ; i++  ){
 		for( j =0; j<n ; j++){
-	//		a[ i*n + j  ] = i*n + j;
-	//		b[ i*n + j ] = i*n + j;
 			c[ i*n + j ] = 0;
 		}
 	}
@@ -204,7 +240,7 @@ int main( int argc, char**  argv  ){
 	
 	//printf("*\n");
 	cudaEventRecord(start);
-	matmul_sm<<<grid, block>>>(n,a_dev,b_dev,c_dev);
+	matmul1<<<grid, block>>>(n,a_dev,b_dev,c_dev);
 	cudaEventRecord(stop);
 
 
@@ -217,7 +253,31 @@ int main( int argc, char**  argv  ){
 
 	float milliseconds = 0;
 	cudaEventElapsedTime(&milliseconds, start, stop);
-	printf("GPU Time: %f\n", milliseconds );	
+	printf("GPU NoSM  Time: %f\n", milliseconds );	
+
+
+
+	// MATMUL KERNEL 1
+
+	//printf("*\n");
+	cudaEventRecord(start);
+	matmul_sm<<<grid, block>>>(n,a_dev,b_dev,c_dev);
+	cudaEventRecord(stop);
+
+
+	cudaEventSynchronize(stop);
+	
+//	printf("*\n");
+	// Get data Devices
+	HANDLE_ERROR(  cudaMemcpy(c, c_dev, sizeof(double) * n * n, cudaMemcpyDeviceToHost )     );
+	
+
+	milliseconds = 0;
+	cudaEventElapsedTime(&milliseconds, start, stop);
+	printf("GPU SM Time: %f\n", milliseconds );	
+
+
+
 
 
 //	print_dmatrix(c,n,n);
