@@ -1,5 +1,5 @@
 
-
+CC = nvcc
 all:
-	nvcc  -Xcompiler -fopenmp  maxmul.cu -o prog
+	$(CC) -DBSIZE=${BSIZE}  -Xcompiler -fopenmp  matmul.cu -o prog
 

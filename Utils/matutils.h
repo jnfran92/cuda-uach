@@ -12,7 +12,7 @@ void print_dmatrix(double *matrix, int m, int n ){
         for ( i =0; i<m ; i++  ){
 		for( j=0; j<n; j++ ){
                 	
-			if(m*i + j < 10 ){
+			if(m*i + j < 15 ){
 			printf(" matrix[%d][%d] = %f \n", i, j,  matrix[ m*i + j ]);
 			}
 

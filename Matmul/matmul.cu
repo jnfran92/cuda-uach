@@ -12,7 +12,7 @@
 #define PRINT 1
 
 
-#define BSIZE 16
+//#define BSIZE 2
 
 using namespace std;
 
@@ -44,49 +44,37 @@ __global__ void matmul_sm(int n, double *a, double *b, double *c){
 	__shared__ double bs[BSIZE*BSIZE];
 	__shared__ double cs[BSIZE*BSIZE];
 
-	int ltidx = threadIdx.x;
-	int ltidy = threadIdx.y;
+	int i = threadIdx.y;
+	int j = threadIdx.x;
 	
-	int tidy = threadIdx.y + blockDim.y * blockIdx.y;
-	int tidx = threadIdx.x + blockDim.x * blockIdx.x;
+	int gi = threadIdx.y + blockDim.y*blockIdx.y;
+	int gj = threadIdx.x + blockDim.x*blockIdx.x;
+ 
+	cs[BSIZE*i + j] = 0;
 
-	
-	cs[bx*ltidy + ltidx ] = 0;
-
-
-	
 	__syncthreads();
 
-	
+	int l;
+	for(l=0; l<n/BSIZE; l++){
+		// Write in cache memory 
+		int offset = l*BSIZE;	
+		as[BSIZE*i + j] = a[n*gi + (offset+j)];
+		bs[BSIZE*i + j] = b[n*(offset+i) + gj];
 
-
-
-
-	as[bx*ltidy + ltidx ] = a[n*tidy  + tidx ];
-	
-	bs[bx*ltidy + ltidx ] = b[n*tidy  + tidx ];
-	
-
-	double r = 0.0;
-	for ( k=0; k< BSIZE  ; k++   ){
-		r +=  a[ n*idy + k  ] *  b[ n*k + idx  ];
+		__syncthreads();
+		// Block matmul
+		double r = 0.0;
+		int k;
+		for ( k=0; k< BSIZE  ; k++   ){
+			r +=  as[ BSIZE*i + k  ] *  bs[ BSIZE*k + j ];
+		}
+		cs[ BSIZE*i +j ] += r;
+		//End work of 1`st stage
+	__syncthreads();
 	}
 
-	c[ n*idy + idx ] = r;
-
-
-
-	
-
-
-
-	__syncthreads();
-	
-
-
-
-
-	
+	//Write Global from cache
+	c[n*gi + gj] = cs[BSIZE*i + j];
 
 
 }
@@ -100,7 +88,7 @@ void matmulcpu(int n,  double *a, double *b, double *c){
 			double temp = 0.0;			
 			for (int k = 0; k< n ;k++ ){
 	
-				temp += a[i*n + k  ] * b[ i*n + k  ];
+				temp += a[n*i + k  ] * b[ n*k + j  ];
 
 			}
 			c[i*n +  j ] = temp;
@@ -111,10 +99,9 @@ void matmulcpu(int n,  double *a, double *b, double *c){
 }
 
 
-
 int main( int argc, char**  argv  ){
 
-	int args_needed = 3;
+	int args_needed = 2;
 	if (argc < args_needed + 1 ){
 		printf(" Arg number error, needed: %d  \n", args_needed);
 		return 0;	
@@ -127,19 +114,14 @@ int main( int argc, char**  argv  ){
 	
 	printf(" CUDA - Maxmul  \n");
 
-
-	// Select Device
-//	HANDLE_ERROR(  cudaSetDevice(0)  ) ;
-	
-	
-
 	// Size
 	int n = atoi(argv[1]);
-	int nt = atoi(argv[2]);
+	int ncpu = atoi(argv[2]);
 
-	int ncpu = atoi(argv[3]);
+
+	printf("BSIZE:  %d - N %d - #CPU %d \n", BSIZE, n, ncpu);
+
 	//Create Data host n x n
-
 	double *a;
 	double *b;
 	double *c;	
@@ -160,7 +142,6 @@ int main( int argc, char**  argv  ){
 	
 
 
-	
 //	print_dmatrix(a,n,n);
 //	print_dmatrix(b,n,n);	
 
@@ -171,7 +152,7 @@ int main( int argc, char**  argv  ){
 	matmulcpu(n,a,b,c);
 	cudaEventRecord(stop);
 
-
+//	print_dmatrix(c,n,n);
 	
 	float milliseconds1 = 0;
 	cudaEventElapsedTime(&milliseconds1, start, stop);
@@ -180,7 +161,19 @@ int main( int argc, char**  argv  ){
 
 
 
+	//printf("*\n");
 
+
+	//Rset C
+
+	for ( i =0; i<n ; i++  ){
+		for( j =0; j<n ; j++){
+	//		a[ i*n + j  ] = i*n + j;
+	//		b[ i*n + j ] = i*n + j;
+			c[ i*n + j ] = 0;
+		}
+	}
+	
 
 	// CUDA data
 	double *a_dev;
@@ -195,34 +188,39 @@ int main( int argc, char**  argv  ){
 	HANDLE_ERROR(  cudaMalloc((void **)&c_dev, sizeof(double) * n * n)   );
 
 
+	//printf("*\n");
 	// Memcpy
 	
 	HANDLE_ERROR(  cudaMemcpy(a_dev, a, sizeof(double) * n * n, cudaMemcpyHostToDevice )     );
 	HANDLE_ERROR(  cudaMemcpy(b_dev, b, sizeof(double) * n * n, cudaMemcpyHostToDevice )     );	
 	
 	
+	//printf("*\n");
 	// Kernel
 	
-	dim3 block(nt, nt, 1);
-	dim3 grid(n/nt, n/nt, 1);
+	dim3 block(BSIZE, BSIZE, 1);
+	dim3 grid(n/BSIZE, n/BSIZE, 1);
 
 	
+	//printf("*\n");
 	cudaEventRecord(start);
-	matmul1<<<grid, block>>>(n,a_dev,b_dev,c_dev);
+	matmul_sm<<<grid, block>>>(n,a_dev,b_dev,c_dev);
 	cudaEventRecord(stop);
 
+
+	cudaEventSynchronize(stop);
+	
+//	printf("*\n");
 	// Get data Devices
 	HANDLE_ERROR(  cudaMemcpy(c, c_dev, sizeof(double) * n * n, cudaMemcpyDeviceToHost )     );
 	
 
-	cudaEventSynchronize(stop);
-	
-
 	float milliseconds = 0;
 	cudaEventElapsedTime(&milliseconds, start, stop);
-	printf("Time: %f\n", milliseconds );	
+	printf("GPU Time: %f\n", milliseconds );	
 
 
+//	print_dmatrix(c,n,n);
 
 	//Free
 	cudaFree( a_dev );
@@ -238,24 +236,3 @@ int main( int argc, char**  argv  ){
 }
 
 
-
-
-
-//	printf("%d %d  \n", idy, idx);
-
-
-	// int bid = (blockDim.x * blockDim.y) * ( gridblockIdx.y )
-
-	//if(tid == 0){
-	//	printf("bid %d   idx %d  \n ", bid, idx);
-	//}
-	//printf("tid %d/n", tid);
-
-	//int tid = blockDim.y * threadIdx.y +   threadIdx.x;
-	//int bid = gridDim.y * blockIdx.y + blockIdx.x; 
-
-	//int idx = (blockDim.x * blockDim.y)*bid + tid;
-
-
-
-//	 printf("%d %d - %f\n", idy, idx, r );
