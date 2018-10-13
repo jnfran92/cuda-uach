@@ -1,5 +1,4 @@
 
-
+CC = nvcc
 all:
-	nvcc maxmul.cu -o prog
-
+		$(CC) -O3  -Xcompiler -fopenmp  julia.cu -o prog

@@ -24,12 +24,12 @@ __global__ void matmul1( int n,  double *a, double *b, double *c){
 	int idx = threadIdx.x + blockDim.x * blockIdx.x;
 
 
-//	int n = blockDim.x * gridDim.x;
+	//	int n = blockDim.x * gridDim.x;
 	int k;
 	double r = 0.0;
 	for ( k=0; k< n  ; k++   ){
-	
-				 
+
+
 		r +=  a[ n*idy + k  ] *  b[ n*k + idx  ];
 
 	}
@@ -46,18 +46,18 @@ __global__ void matmul_sm(int n, double *a, double *b, double *c){
 
 	int i = threadIdx.y;
 	int j = threadIdx.x;
-	
+
 	int gi = threadIdx.y + blockDim.y*blockIdx.y;
 	int gj = threadIdx.x + blockDim.x*blockIdx.x;
- 
+
 	cs[BSIZE*i + j] = 0;
 
 	__syncthreads();
 
 	int l;
 	for(l=0; l<n/BSIZE; l++){
-		// Write in cache memory 
-		int offset = l*BSIZE;	
+		// Write in cache memory
+		int offset = l*BSIZE;
 		as[BSIZE*i + j] = a[n*gi + (offset+j)];
 		bs[BSIZE*i + j] = b[n*(offset+i) + gj];
 
@@ -70,7 +70,7 @@ __global__ void matmul_sm(int n, double *a, double *b, double *c){
 		}
 		cs[ BSIZE*i +j ] += r;
 		//End work of 1`st stage
-	__syncthreads();
+		__syncthreads();
 	}
 
 	//Write Global from cache
@@ -79,21 +79,61 @@ __global__ void matmul_sm(int n, double *a, double *b, double *c){
 
 }
 
+
+__global__ void matmul_sm_while(int n, double *a, double *b, double *c){
+	// (1) crear memoria compartida
+	__shared__ double as[BSIZE*BSIZE];
+	__shared__ double bs[BSIZE*BSIZE];
+	__shared__ double cs[BSIZE*BSIZE];
+
+	int ltidx = threadIdx.x;
+	int ltidy = threadIdx.y;
+	int tidx = threadIdx.x + blockDim.x * blockIdx.x;
+	int tidy = threadIdx.y + blockDim.y * blockIdx.y;
+
+	// (2) insertar elementos en cache
+	int w=0;
+	cs[ltidy*BSIZE + ltidx] = 0.0;
+	__syncthreads();
+	while(w<n){
+		as[ltidy*BSIZE + ltidx] = a[tidy*n + (ltidx + w)];
+		bs[ltidy*BSIZE + ltidx] = b[(ltidy + w)*n + tidx];
+		__syncthreads();
+
+		// (3) matmul en cache
+		double r = 0.0;
+		for (int k=0; k<BSIZE; k++){
+			r +=  as[BSIZE*ltidy + k] *  bs[BSIZE*k + ltidx];
+		}
+		cs[ltidy*BSIZE + ltidx] += r;
+		__syncthreads();
+		w += BSIZE;
+	}
+	// (4) escribir en c global
+	//__syncthreads();
+	c[tidy*n + tidx] = cs[ltidy*BSIZE + ltidx];
+}
+
+
+
+
+
+
 void matmulcpu(int n,  double *a, double *b, double *c){
 
-//	int j, k;
-	#pragma omp parallel for
+	//	int j, k;
+#pragma omp parallel for
 	for ( int i = 0; i< n ;i++ ){
 		for ( int j = 0; j< n ;j++ ){
-			double temp = 0.0;			
+			double temp = 0.0;
 			for (int k = 0; k< n ;k++ ){
-	
+
 				temp += a[n*i + k  ] * b[ n*k + j  ];
 
 			}
 			c[i*n +  j ] = temp;
 
-		}	
+		}
 	}
 
 }
@@ -101,19 +141,19 @@ void matmulcpu(int n,  double *a, double *b, double *c){
 
 void matmulcpu_transp(int n,  double *a, double *b, double *c){
 
-//	int j, k;
-	#pragma omp parallel for
+	//	int j, k;
+#pragma omp parallel for
 	for ( int i = 0; i< n ;i++ ){
 		for ( int j = 0; j< n ;j++ ){
-			double temp = 0.0;			
+			double temp = 0.0;
 			for (int k = 0; k< n ;k++ ){
-	
+
 				temp += a[n*i + k  ] * b[ n*i + k  ];
 
 			}
 			c[i*n +  j ] = temp;
 
-		}	
+		}
 	}
 
 }
@@ -127,14 +167,14 @@ int main( int argc, char**  argv  ){
 	int args_needed = 2;
 	if (argc < args_needed + 1 ){
 		printf(" Arg number error, needed: %d  \n", args_needed);
-		return 0;	
+		return 0;
 	}
 
 
 	cudaEvent_t start, stop;
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
-	
+
 	printf(" CUDA - Maxmul  \n");
 
 	// Size
@@ -147,7 +187,7 @@ int main( int argc, char**  argv  ){
 	//Create Data host n x n
 	double *a;
 	double *b;
-	double *c;	
+	double *c;
 
 	a = (double *)malloc( sizeof(double) * n * n  );
 	b = (double *)malloc( sizeof(double) * n * n  );
@@ -162,37 +202,37 @@ int main( int argc, char**  argv  ){
 			c[ i*n + j ] = 0;
 		}
 	}
-	
 
 
-//	print_dmatrix(a,n,n);
-//	print_dmatrix(b,n,n);	
+
+	//	print_dmatrix(a,n,n);
+	//	print_dmatrix(b,n,n);
 
 
 	omp_set_num_threads(ncpu);
 
-	cudaEventRecord(start);	
+	cudaEventRecord(start);
 	matmulcpu(n,a,b,c);
 	cudaEventRecord(stop);
 
-//	print_dmatrix(c,n,n);
-	
+	//	print_dmatrix(c,n,n);
+
 	float milliseconds1 = 0;
 	cudaEventElapsedTime(&milliseconds1, start, stop);
-	printf("Time CPU : %f\n", milliseconds1 );	
+	printf("Time CPU : %f\n", milliseconds1 );
 
 
 	// Transpose CPU
 
-	cudaEventRecord(start);	
+	cudaEventRecord(start);
 	matmulcpu_transp(n,a,b,c);
 	cudaEventRecord(stop);
 
-//	print_dmatrix(c,n,n);
-	
+	//	print_dmatrix(c,n,n);
+
 	milliseconds1 = 0;
 	cudaEventElapsedTime(&milliseconds1, start, stop);
-	printf("Time CPU Transp : %f\n", milliseconds1 );	
+	printf("Time CPU Transp : %f\n", milliseconds1 );
 
 
 
@@ -209,7 +249,7 @@ int main( int argc, char**  argv  ){
 			c[ i*n + j ] = 0;
 		}
 	}
-	
+
 
 	// CUDA data
 	double *a_dev;
@@ -226,61 +266,84 @@ int main( int argc, char**  argv  ){
 
 	//printf("*\n");
 	// Memcpy
-	
+
 	HANDLE_ERROR(  cudaMemcpy(a_dev, a, sizeof(double) * n * n, cudaMemcpyHostToDevice )     );
-	HANDLE_ERROR(  cudaMemcpy(b_dev, b, sizeof(double) * n * n, cudaMemcpyHostToDevice )     );	
-	
-	
+	HANDLE_ERROR(  cudaMemcpy(b_dev, b, sizeof(double) * n * n, cudaMemcpyHostToDevice )     );
+
+
 	//printf("*\n");
 	// Kernel
-	
+
 	dim3 block(BSIZE, BSIZE, 1);
 	dim3 grid(n/BSIZE, n/BSIZE, 1);
 
-	
+
 	//printf("*\n");
 	cudaEventRecord(start);
 	matmul1<<<grid, block>>>(n,a_dev,b_dev,c_dev);
+	cudaDeviceSynchronize();
 	cudaEventRecord(stop);
 
 
 	cudaEventSynchronize(stop);
-	
-//	printf("*\n");
+
+	//	printf("*\n");
 	// Get data Devices
 	HANDLE_ERROR(  cudaMemcpy(c, c_dev, sizeof(double) * n * n, cudaMemcpyDeviceToHost )     );
-	
+
 
 	float milliseconds = 0;
 	cudaEventElapsedTime(&milliseconds, start, stop);
-	printf("GPU NoSM  Time: %f\n", milliseconds );	
+	printf("GPU NoSM  Time: %f\n", milliseconds );
 
 
 
-	// MATMUL KERNEL 1
+	// MATMUL KERNEL SM
 
 	//printf("*\n");
 	cudaEventRecord(start);
 	matmul_sm<<<grid, block>>>(n,a_dev,b_dev,c_dev);
+	cudaDeviceSynchronize();
 	cudaEventRecord(stop);
 
 
 	cudaEventSynchronize(stop);
-	
-//	printf("*\n");
+
+	//	printf("*\n");
 	// Get data Devices
 	HANDLE_ERROR(  cudaMemcpy(c, c_dev, sizeof(double) * n * n, cudaMemcpyDeviceToHost )     );
-	
+
 
 	milliseconds = 0;
 	cudaEventElapsedTime(&milliseconds, start, stop);
-	printf("GPU SM Time: %f\n", milliseconds );	
+	printf("GPU SM Time: %f\n", milliseconds );
+
+
+
+	// MATMUL KERNEL SM WHILE
+
+	//printf("*\n");
+	cudaEventRecord(start);
+	matmul_sm_while<<<grid, block>>>(n,a_dev,b_dev,c_dev);
+	cudaDeviceSynchronize();
+	cudaEventRecord(stop);
+
+
+	cudaEventSynchronize(stop);
+
+	//	printf("*\n");
+	// Get data Devices
+	HANDLE_ERROR(  cudaMemcpy(c, c_dev, sizeof(double) * n * n, cudaMemcpyDeviceToHost )     );
+
+
+	milliseconds = 0;
+	cudaEventElapsedTime(&milliseconds, start, stop);
+	printf("GPU SM WHILE Time: %f\n", milliseconds );
 
 
 
 
-
-//	print_dmatrix(c,n,n);
+	//	print_dmatrix(c,n,n);
 
 	//Free
 	cudaFree( a_dev );
