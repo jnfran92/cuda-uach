@@ -1,4 +1,4 @@
 
 CC = nvcc
 all:
-		$(CC) -O3  -Xcompiler -fopenmp  s_reduction.cu -o prog
+		$(CC) -O3 -DBSIZE=${BSIZE}  -arch=sm_60 -Xcompiler -fopenmp reduction.cu -o prog
