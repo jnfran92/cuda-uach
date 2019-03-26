@@ -138,6 +138,7 @@ int main( int argc, char**  argv  ){
 	int args_needed = 4;
 	if (argc < args_needed + 1 ){
 		printf(" Arg number error, needed: %d  \n", args_needed);
+		printf("[1]Convergence:200  [2]width:128 [3]height:128 [4]threshold:60  \n ");	
 		return 0;
 	}
 

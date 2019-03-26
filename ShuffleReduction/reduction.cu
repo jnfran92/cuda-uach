@@ -27,10 +27,10 @@ typedef long int92;
 
 	__shared__ double vector[BSIZE];
 
-	int92 i = threadIdx.y;
+	/*int92 i = threadIdx.y;*/
 	int92 j = threadIdx.x;
 
-	int92 gi = threadIdx.y + blockDim.y*blockIdx.y;
+	/*int92 gi = threadIdx.y + blockDim.y*blockIdx.y;*/
 	int92 gj = threadIdx.x + blockDim.x*blockIdx.x;
 
 	vector[j] = gvector[gj];
@@ -67,14 +67,12 @@ __global__ void atomic_add(double *vector){
 	__shared__ double res;
 
 	res = 0.0;	
-	int92 i = threadIdx.y;
+	/*int92 i = threadIdx.y;*/
 	int92 j = threadIdx.x;
 
-	int92 gi = threadIdx.y + blockDim.y*blockIdx.y;
-	int92 gj = threadIdx.x + blockDim.x*blockIdx.x;
+	/*int92 gi = threadIdx.y + blockDim.y*blockIdx.y;*/
+	/*int92 gj = threadIdx.x + blockDim.x*blockIdx.x;*/
 
-	/*double res;i*/
-	/*res = 0;*/
 	__syncthreads();
 
 
@@ -96,7 +94,7 @@ __global__ void atomic_reduction(double *vector, double *gres){
 	int92 j = threadIdx.x;
 
 	/*int92 gi = threadIdx.y + blockDim.y*blockIdx.y;*/
-	int92 gj = threadIdx.x + blockDim.x*blockIdx.x;
+	/*int92 gj = threadIdx.x + blockDim.x*blockIdx.x;*/
 
 	__syncthreads();
 
@@ -156,53 +154,108 @@ __global__ void btree_atomic_reduction(double *gvector, int92 n_steps ,double *g
 
 __global__ void shuffle_reduction(double *gvector, int92 n_steps ,double *gres){
 
-	/*__shared__ double vector[BSIZE];*/
 	
+	__shared__ double vector[BSIZE/32];
+	__shared__ double res;
 	/*int92 i = threadIdx.y;*/
 	int92 j = threadIdx.x;
 
 	/*int92 gi = threadIdx.y + blockDim.y*blockIdx.y;*/
 	int92 gj = threadIdx.x + blockDim.x*blockIdx.x;
 
-	/*vector[j] = gvector[gj];*/
-
+	int92 wj = j%32;
+	int92 widx = j/32; 
+	res = 0.0;
 
 	double thread_var;
 	
+
+	if(widx==0){
+	vector[wj] = 0.0;
+	}
+
+
 	thread_var = gvector[gj];
 
 	
 	__syncthreads();
 	
 	
-	int92 count = BSIZE/2;
+	int92 count = 32/2;
 	
 
 	for (int92 m=0; m < n_steps; m++){
 		
-		/*if( j % count == 0  ){*/
-			/*vector[j] += vector[j + count/2  ];*/
-		/*}*/
-
-		thread_var += __shfl_down_sync(0xffffffff, thread_var, count, BSIZE);
+		thread_var += __shfl_down_sync(0xffffffff, thread_var, count, 32);
 
 		count = count/2; 
-		/*__syncthreads();*/
 	}
 
 
+	if(wj==0){
+		vector[widx] = thread_var;
+	}
 
 	__syncthreads();
 
 
-	if(j==0){
-	atomicAdd(gres, thread_var);
+	if(widx == 0){
+	atomicAdd(&res, vector[wj]);
 	}
+
+	__syncthreads();
+
+
+	if(j == 0){
+	atomicAdd(gres, res);
+
+	}
+
+
 
 }
 
 
 
+/*__global__ void shuffle_sm_reduction(double *gvector, int92 n_steps ,double *gres){*/
+
+
+	/*__shared__ double vector[BSIZE];*/
+	/*[>int92 i = threadIdx.y;<]*/
+	/*int92 j = threadIdx.x;*/
+
+	/*[>int92 gi = threadIdx.y + blockDim.y*blockIdx.y;<]*/
+	/*int92 gj = threadIdx.x + blockDim.x*blockIdx.x;*/
+
+
+	/*double thread_var;*/
+	
+	/*thread_var = gvector[gj];*/
+
+	
+	/*__syncthreads();*/
+	
+	
+	/*int92 count = BSIZE/2;*/
+	
+
+	/*for (int92 m=0; m < n_steps; m++){*/
+		
+		/*thread_var += __shfl_down_sync(0xffffffff, thread_var, count, BSIZE);*/
+
+		/*count = count/2; */
+	/*}*/
+
+
+
+	/*__syncthreads();*/
+
+
+	/*if(j==0){*/
+	/*atomicAdd(gres, thread_var);*/
+	/*}*/
+
+/*}*/
 
 
 void reduce(double *vector, int92 n   ){
@@ -217,7 +270,7 @@ void reduce(double *vector, int92 n   ){
 	for(int92 i=0; i<n_steps; i++ ){
 
 
-
+#pragma omp parallel for
 		for (int92 j=0; j<n_temp ; j++){
 			int92 idx = j*(n/n_temp);
 			vector[idx] = vector[idx] + vector[idx + ( n/(n_temp*2) )  ];
@@ -228,6 +281,25 @@ void reduce(double *vector, int92 n   ){
 	}
 
 
+
+}
+
+
+
+
+
+double reduce_cpu_2(double *vector, int92 n   ){
+
+	double res = 0.0;
+
+	#pragma omp parallel for reduction(+:res)
+	for (int i=0; i<n; i++){
+	
+		res += vector[i];
+	
+	}	
+
+	return res;
 
 }
 
@@ -248,12 +320,12 @@ int main( int argc, char**  argv  ){
 	cudaEventCreate(&stop);
 
 	// OMP
-	int ncpu = 1;
+	int ncpu = NCPU;
 	omp_set_num_threads(ncpu);
 
 
 	printf(" CUDA - Reduction \n");
-	printf("BSIZE=%ld  \n",BSIZE );
+	printf("BSIZE=%d  \n",BSIZE );
 	//Init parameters
 
 	int92 n = atoi(argv[1]);
@@ -273,7 +345,7 @@ int main( int argc, char**  argv  ){
 	// Create  Data
 	for (int92 i=0; i<n; i++){
 
-		a[i] = 1.0;
+		a[i] = i;
 		b[i] = 0;
 	}
 
@@ -282,9 +354,7 @@ int main( int argc, char**  argv  ){
 	// CPU implementation--------------------------------
 
 
-	float ms = 0.0;
-
-	/*float t1=0.0, t2=0.0;*/
+	float ms_cpu = 0.0;
 
 	/*print_dmatrix(a,1,n);*/
 
@@ -293,22 +363,39 @@ int main( int argc, char**  argv  ){
 	reduce(a, n);
 	cudaEventRecord(stop);
 
-	cudaEventElapsedTime(&ms, start, stop);
-	printf("%d GPU - Result: %f Time: %lf  \n", ncpu,a[0], ms );
+	cudaEventElapsedTime(&ms_cpu, start, stop);
+	printf("%d CPU - Result: %f Time: %lf Sp: %f \n", ncpu,a[0], ms_cpu, ms_cpu/ms_cpu  );
 
 
 	/*print_dmatrix(a,1,n);*/
 
 
+	// CPU implementation--------------------------------
+
+
+	float ms_cpu_2 = 0.0;
+
+	/*print_dmatrix(a,1,n);*/
+
+	double res_cpu;
+	cudaEventRecord(start);
+	res_cpu = reduce_cpu_2(a, n);
+	cudaEventRecord(stop);
+
+	cudaEventElapsedTime(&ms_cpu_2, start, stop);
+	printf("%d CPU - Result: %f Time: %lf Sp: %f \n", ncpu,res_cpu, ms_cpu_2, ms_cpu/ms_cpu_2  );
+
+
+	/*print_dmatrix(a,1,n);*/
 
 
 	// GPU Implementation--------------------------------
 
-
+	float ms = 0.0;
 	// Create  Data
 	for (int92 i=0; i<n; i++){
 
-		a[i] = 1.0;
+		a[i] = i;
 		b[i] = 0;
 	}
 
@@ -373,11 +460,10 @@ int main( int argc, char**  argv  ){
 
 	HANDLE_ERROR(  cudaMemcpy(b, b_dev, msize, cudaMemcpyDeviceToHost )     );
 	/*print_dmatrix(a,1,n);*/
-	/*printf("Reduction result: %f\n", a[0]);*/
 
 	ms = 0;
 	cudaEventElapsedTime(&ms, start, stop);
-	printf("GPU Binary Tree %f, Time: %f \n",a[0] ,ms );
+	printf("GPU Binary Tree %f, Time: %f, Sp: %f \n",a[0] ,ms,  ms_cpu/ms );
 	
 
 
@@ -387,7 +473,7 @@ int main( int argc, char**  argv  ){
 	// Create  Data
 	for (int92 i=0; i<n; i++){
 
-		a[i] = 1.0;
+		a[i] = i;
 		/*b[i] = 0;*/
 	}
 
@@ -421,7 +507,7 @@ int main( int argc, char**  argv  ){
 
 	ms = 0;
 	cudaEventElapsedTime(&ms, start, stop);
-	printf("GPU Atomic Reduction %f, Time: %f \n",res ,ms );
+	printf("GPU Atomic Reduction %f, Time: %f, Sp: %f \n",res ,ms, ms_cpu/ms );
 	
 
 
@@ -431,28 +517,18 @@ int main( int argc, char**  argv  ){
 	// Create  Data
 	for (int92 i=0; i<n; i++){
 
-		a[i] = 1.0;
+		a[i] = i;
 		/*b[i] = 0;*/
 	}
 
-	/*double *res_dev;	*/
-	/*double res;*/
-
 	res = 0.0;
 
-	/*HANDLE_ERROR( cudaMalloc((void **)&a_dev, msize)    );*/
-	/*HANDLE_ERROR( cudaMalloc((void **)&res_dev, sizeof(double))    );*/
-		
 	// Copy Data to Device
 	HANDLE_ERROR( cudaMemcpy(a_dev, a, msize  , cudaMemcpyHostToDevice   )  );
 	HANDLE_ERROR( cudaMemcpy(res_dev, &res, sizeof(double)  , cudaMemcpyHostToDevice   )  );
 	
 	ms = 0.0;
 	n_steps = (int92)log2((double)BSIZE);
-
-	/*dim3 block_atomic(BSIZE,1,1);*/
-	/*dim3 grid_atomic(n/BSIZE,1,1);*/
-
 
 	cudaEventRecord(start);
 	btree_atomic_reduction<<<grid_atomic, block_atomic >>>(a_dev,n_steps, res_dev );
@@ -466,7 +542,7 @@ int main( int argc, char**  argv  ){
 
 	ms = 0;
 	cudaEventElapsedTime(&ms, start, stop);
-	printf("GPU Btree Atomic Reduction %f, Time: %f \n",res ,ms );
+	printf("GPU Btree Atomic Reduction %f, Time: %f, Sp: %f \n",res ,ms, ms_cpu/ms );
 	
 
 
@@ -476,27 +552,19 @@ int main( int argc, char**  argv  ){
 	// Create  Data
 	for (int92 i=0; i<n; i++){
 
-		a[i] = 1.0;
+		a[i] = i;
 		/*b[i] = 0;*/
 	}
 
-	/*double *res_dev;	*/
-	/*double res;*/
 
 	res = 0.0;
 
-	/*HANDLE_ERROR( cudaMalloc((void **)&a_dev, msize)    );*/
-	/*HANDLE_ERROR( cudaMalloc((void **)&res_dev, sizeof(double))    );*/
-		
 	// Copy Data to Device
 	HANDLE_ERROR( cudaMemcpy(a_dev, a, msize  , cudaMemcpyHostToDevice   )  );
 	HANDLE_ERROR( cudaMemcpy(res_dev, &res, sizeof(double)  , cudaMemcpyHostToDevice   )  );
 	
 	ms = 0.0;
-	n_steps = (int92)log2((double)BSIZE);
-
-	/*dim3 block_atomic(BSIZE,1,1);*/
-	/*dim3 grid_atomic(n/BSIZE,1,1);*/
+	n_steps = (int92)log2((double)32);
 
 
 	cudaEventRecord(start);
@@ -509,9 +577,8 @@ int main( int argc, char**  argv  ){
 
 
 
-	ms = 0;
 	cudaEventElapsedTime(&ms, start, stop);
-	printf("GPU Shuffle Reduction %f, Time: %f \n",res ,ms );
+	printf("GPU Shuffle Reduction %f, Time: %f, Sp: %f  \n",res ,ms ,ms_cpu/ms );
 	
 	// Free memory
 
@@ -520,7 +587,6 @@ int main( int argc, char**  argv  ){
 
 	free(a);
 	free(b);
-
 
 
 
