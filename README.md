@@ -8,7 +8,7 @@ CUDA Scripts for "GPU Programming" classes in UACh: Matrix multiplication, reduc
 
 - **ClassicMatmul:** matrix multiplication implemented for CPU(using OpenMP and analyzing transpose matrix effects) and CUDA(using SHared Memory too)
 
-- **MatmulMultiGPU:**Matrix multiplication implemented for CPU(OpenMP) and CUDA(using multiGPU). It also includes mem.cu file which implements naive matmul considering Unified Memory.
+- **MatmulMultiGPU:** Matrix multiplication implemented for CPU(OpenMP) and CUDA(using multiGPU). It also includes mem.cu file which implements naive matmul considering Unified Memory.
 
 - **ShuffleReduction**: Reduction implementation in CUDA using: __shfl__ functions, atomics, and omp reduce(for CPU).
 
